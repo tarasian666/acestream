@@ -44,7 +44,7 @@ class DownloadImpl:
             self.tdef.readonly = True
             self.log_prefix = 'DownloadImpl::' + str(DLTYPE_TORRENT) + ':' + binascii.hexlify(self.tdef.get_infohash()) + ':'
             if tdef.can_save() != 1:
-                self.encrypted_storage = True
+                self.encrypted_storage = False
             else:
                 self.encrypted_storage = globalConfig.get_value('encrypted_storage')
         elif self.dltype == DLTYPE_DIRECT:

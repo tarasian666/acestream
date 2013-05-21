@@ -857,8 +857,7 @@ class StorageWrapper:
         except IOError as e:
             self.failed('IO Error: ' + str(e))
         except OSError as e:
-	    log('OS Error: ' + str(e))
-            #self.failed('OS Error: ' + str(e))
+            self.failed('OS Error: ' + str(e))
 
     def _move_piece(self, index, newpos):
         oldpos = self.places[index]

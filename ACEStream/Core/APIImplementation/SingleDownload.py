@@ -42,6 +42,7 @@ class SingleDownload:
         self.repexer = None
         self.log_prefix = 'sd::' + binascii.hexlify(self.infohash) + ':'
         self.lock = Lock()
+        self.stopping = False
         self.download_id = binascii.hexlify(self.infohash) + '-' + str(long(time.time())) + '-' + str(random.randint(0, 100000))
         try:
             self.dldoneflag = Event()
@@ -288,11 +289,20 @@ class SingleDownload:
         else:
             return
 
-    def shutdown(self):
+    def shutdown(self, blocking = True):
         if DEBUG:
             log(self.log_prefix + 'shutdown: thread', currentThread().getName())
         resumedata = None
-        self.lock.acquire()
+        if self.stopping:
+            if DEBUG:
+                log(self.log_prefix + 'shutdown: already stopping, exit: thread', currentThread().getName())
+            return
+        if DEBUG:
+            log(self.log_prefix + 'shutdown, acquire lock: blocking', blocking, 'thread', currentThread().getName())
+        locked = self.lock.acquire(blocking)
+        if DEBUG:
+            log(self.log_prefix + 'shutdown, got lock: locked', locked, 'thread', currentThread().getName())
+        self.stopping = True
         try:
             if self.dow is not None:
                 if self.repexer:
@@ -314,7 +324,11 @@ class SingleDownload:
             elif DEBUG:
                 log(self.log_prefix + 'shutdown: regular shutdown: _getstatsfunc', self._getstatsfunc, 'thread', currentThread().getName())
         finally:
-            self.lock.release()
+            if DEBUG:
+                log(self.log_prefix + 'shutdown, release lock: thread', currentThread().getName())
+            self.stopping = False
+            if locked:
+                self.lock.release()
 
         return resumedata
 
@@ -464,7 +478,7 @@ class SingleDownload:
         else:
             log_exc()
             self.set_error_func(data)
-        self.shutdown()
+        self.shutdown(blocking=False)
 
     def nonfatalerrorfunc(self, e):
         log(self.log_prefix + 'nonfatalerrorfunc called', e)

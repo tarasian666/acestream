@@ -392,7 +392,7 @@ class BaseApp(InstanceConnectionHandler):
         #ga = lambda : GoogleAnalytics.send_event('client', 'startup', VERSION)
         #self.run_delayed(ga)
         self.tsservice = TSService(self)
-        self.run_delayed(self.check_auth_level, 0.1)
+        #self.run_delayed(self.check_auth_level, 0.1)
         self.cookie_file = os.path.join(self.state_dir, 'cookies.pickle')
         self.cookie_jar = cookielib.CookieJar()
         self.load_cookies()
@@ -406,16 +406,16 @@ class BaseApp(InstanceConnectionHandler):
                 if DEBUG:
                     print_exc()
 
-        self.check_user_profile()
+        #self.check_user_profile()
         #self.ad_manager = AdManager(self, self.cookie_jar)
         if TS_ENV_PLATFORM == 'dune':
             default_enabled = False
         else:
             default_enabled = True
-        preload_ads_enabled = self.get_preload_ads_enabled(default_enabled)
-        if DEBUG:
-            log('baseapp::init: preload_ads_enabled', preload_ads_enabled)
-        self.run_delayed(self.cleanup_hidden_downloads_task, 1.0)
+        #preload_ads_enabled = self.get_preload_ads_enabled(default_enabled)
+        #if DEBUG:
+            #log('baseapp::init: preload_ads_enabled', preload_ads_enabled)
+        #self.run_delayed(self.cleanup_hidden_downloads_task, 1.0)
         self.run_delayed(self.remove_unknown_downloads, 20.0)
         #self.run_delayed(self.check_preload_ads, 1.0, 'check_preload_ads')
         if sys.platform == 'win32':
@@ -928,173 +928,6 @@ class BaseApp(InstanceConnectionHandler):
         #func = lambda : GoogleAnalytics.send_event('client', 'play', VERSION)
         #self.run_delayed(func)
         return newd
-
-    def start_ad_downloads_when_main_started(self, maind, ads):
-        self.dlinfo_lock.acquire()
-        try:
-            if maind not in self.downloads_in_vodmode:
-                if DEBUG:
-                    log('baseapp::start_ad_downloads_when_main_started: download is not in vod mode, stop trying: hash', binascii.hexlify(maind.get_hash()))
-                return
-            ds = maind.network_get_state(usercallback=None, getpeerlist=False, sessioncalling=True)
-            dlstatus = ds.get_status()
-            is_vod = ds.is_vod()
-            playable = ds.get_vod_playable()
-            if DEBUG:
-                log('baseapp::start_ad_downloads_when_main_started: hash', binascii.hexlify(maind.get_hash()), 'status', dlstatus_strings[dlstatus], 'is_vod', is_vod, 'playable', playable)
-            if dlstatus == DLSTATUS_STOPPED_ON_ERROR:
-                if DEBUG:
-                    log('baseapp::start_ad_downloads_when_main_started: download cannot start, stop trying: hash', binascii.hexlify(maind.get_hash()), 'error', ds.get_error())
-                return
-            start_ads = False
-            if dlstatus == DLSTATUS_DOWNLOADING and is_vod:
-                if playable:
-                    if DEBUG:
-                        log('baseapp::start_ad_downloads_when_main_started: download is playable, stop trying: hash', binascii.hexlify(maind.get_hash()))
-                    return
-                if DEBUG:
-                    log('baseapp::start_ad_downloads_when_main_started: download is not playable, start ads: hash', binascii.hexlify(maind.get_hash()))
-                start_ads = True
-            else:
-                if dlstatus == DLSTATUS_SEEDING:
-                    if DEBUG:
-                        log('baseapp::start_ad_downloads_when_main_started: download is finished, stop trying: hash', binascii.hexlify(maind.get_hash()))
-                    return
-                if DEBUG:
-                    log('baseapp::start_ad_downloads_when_main_started: keep trying: hash', binascii.hexlify(maind.get_hash()))
-            if start_ads:
-                self.start_ad_downloads(maind, ads)
-            else:
-                start_ad_downloads_when_main_started_lambda = lambda : self.start_ad_downloads_when_main_started(maind, ads)
-                self.run_delayed(start_ad_downloads_when_main_started_lambda, 1.0)
-        finally:
-            self.dlinfo_lock.release()
-
-    def start_ad_downloads(self, newd, ads):
-        ds = newd.network_get_state(usercallback=None, getpeerlist=False, sessioncalling=True)
-        main_dlstatus = ds.get_status()
-        main_progress = ds.get_progress()
-        if DEBUG:
-            log('baseapp::start_ad_downloads: start ads: main', binascii.hexlify(newd.get_hash()), 'status', dlstatus_strings[main_dlstatus], 'progress', main_progress)
-        noninterruptable_ads = []
-        noninterruptable_ads_hash_list = []
-        interruptable_ads = []
-        for ad in ads:
-            if ad['dltype'] == DLTYPE_TORRENT:
-                ad['dlhash'] = ad['tdef'].get_infohash()
-                ad['size'] = ad['tdef'].get_length()
-            elif ad['dltype'] == DLTYPE_DIRECT:
-                tdef = None
-                if tdef is None:
-                    ad['dlhash'] = hashlib.sha1(ad['url']).digest()
-                    ad['size'] = 0
-                else:
-                    ad['tdef'] = tdef
-                    ad['dlhash'] = tdef.get_infohash()
-                    ad['size'] = tdef.get_length()
-                    ad['dltype'] = DLTYPE_TORRENT
-                    if DEBUG:
-                        log('baseapp::start_ad_downloads: got torrent from url: url', ad['url'], 'infohash', binascii.hexlify(ad['dlhash']))
-            else:
-                raise ValueError('Unknown download type ' + str(ad['dltype']))
-            if not ad.has_key('priority'):
-                if ad['interruptable']:
-                    ad['priority'] = 0
-                else:
-                    ad['priority'] = -1
-            if ad['interruptable']:
-                interruptable_ads.append(ad)
-            else:
-                noninterruptable_ads.append(ad)
-                noninterruptable_ads_hash_list.append(ad['dlhash'])
-
-        def start_ad(ad):
-            d = self.s.get_download(ad['dltype'], ad['dlhash'])
-            if d is None:
-                if ad['interruptable'] or ad['wait_preload']:
-                    if DEBUG:
-                        log('baseapp::start_ad_downloads: interruptable or preload ad download is not in downloads, skip: dlhash', binascii.hexlify(ad['dlhash']))
-                    return False
-                if DEBUG:
-                    log('baseapp::start_ad_downloads: start new ad download: main', binascii.hexlify(newd.get_hash()), 'ad', binascii.hexlify(ad['dlhash']))
-                if not self.cleanup_hidden_downloads(needed=ad['size'], priority=ad['priority']):
-                    if DEBUG:
-                        log('baseapp::start_ad_downloads: not enough space: hash', binascii.hexlify(ad['dlhash']), 'size', ad['size'])
-                    return False
-                dcfg = DownloadStartupConfig()
-                dcfg.set_video_event_callback(lambda d, event, params: self.sesscb_vod_event_callback(d, event, params, newd))
-                dcfg.set_dest_dir(self.s.get_ads_dir())
-                dcfg.set_player_buffer_time(1)
-                dcfg.set_max_conns(50)
-                dcfg.set_max_conns_to_initiate(60)
-                dcfg.set_hidden(True)
-                if ad['dltype'] == DLTYPE_TORRENT:
-                    d = self.s.start_download(ad['tdef'], dcfg)
-                elif ad['dltype'] == DLTYPE_DIRECT:
-                    dcfg.set_download_failed_callback(self.download_failed_callback)
-                    if ad['predownload']:
-                        dcfg.set_predownload(True)
-                    d = self.s.start_direct_download(ad['url'], dcfg)
-            else:
-                if ad['interruptable']:
-                    if main_progress == 1.0:
-                        if DEBUG:
-                            log('baseapp::start_ad_downloads: main content is completed, skip interruptable ad: dlhash', binascii.hexlify(ad['dlhash']))
-                        return False
-                if ad['interruptable'] or ad['wait_preload']:
-                    ds = d.network_get_state(usercallback=None, getpeerlist=False, sessioncalling=True)
-                    progress = ds.get_progress()
-                    if progress != 1.0:
-                        if DEBUG:
-                            log('baseapp::start_ad_downloads: interruptable or preload ad download is not completed, skip: dlhash', binascii.hexlify(ad['dlhash']), 'progress', progress)
-                        return False
-                used_by_another_vod = False
-                for main_d, ads in self.downloads_in_admode.iteritems():
-                    if d in ads:
-                        used_by_another_vod = True
-                        if DEBUG:
-                            log('baseapp::start_ad_downloads: ad download is used by another vod: main', binascii.hexlify(newd.get_hash()), 'other', binascii.hexlify(main_d.get_hash()), 'ad', binascii.hexlify(d.get_hash()))
-                        break
-
-                if used_by_another_vod:
-                    start_ad_download_when_seeding_lambda = lambda d = d, newd = newd: self.start_ad_download_when_seeding(d, newd)
-                    self.run_delayed(start_ad_download_when_seeding_lambda, 0.1)
-                else:
-                    if DEBUG:
-                        log('baseapp::start_ad_downloads: restart existing ad download: main', binascii.hexlify(newd.get_hash()), 'ad', binascii.hexlify(ad['dlhash']))
-                    d.set_video_event_callback(lambda d, event, params: self.sesscb_vod_event_callback(d, event, params, newd))
-                    d.set_player_buffer_time(1)
-                    d.set_max_conns(10)
-                    d.set_max_conns_to_initiate(10)
-                    d.set_hidden(True)
-                    if d.get_type() == DLTYPE_DIRECT:
-                        d.set_download_failed_callback(self.download_failed_callback)
-                    d.restart()
-            self.downloads_in_admode.setdefault(newd, odict())[d] = {'ad': ad,
-             'start_params': None,
-             'completed': False,
-             'started': None,
-             'finished': None,
-             'failed': False}
-            return True
-
-        started_noninterruptable_ads = 0
-        started_interruptable_ads = 0
-        for ad in noninterruptable_ads:
-            if start_ad(ad):
-                started_noninterruptable_ads += 1
-
-        for ad in interruptable_ads:
-            if start_ad(ad):
-                started_interruptable_ads += 1
-
-        if DEBUG:
-            log('baseapp::start_ad_downloads: started_noninterruptable_ads', started_noninterruptable_ads, 'started_interruptable_ads', started_interruptable_ads)
-        if started_noninterruptable_ads == 0 and started_interruptable_ads == 0 and main_dlstatus == DLSTATUS_STOPPED:
-            if DEBUG:
-                log('baseapp::start_ad_downloads: no ads started, start main download: main', binascii.hexlify(newd.get_hash()))
-            newd.restart()
-        self.add_preload_ads(interruptable_ads, False)
 
     def guess_duration_from_size(self, content_length):
         if content_length >= 734003200:
@@ -2060,6 +1893,7 @@ class BaseApp(InstanceConnectionHandler):
          totalspeed)
 
     def update_download_stats(self, ds, force = False):
+        return
         try:
             if not force and time.time() - self.last_download_stats < DOWNLOAD_STATS_INTERVAL:
                 return

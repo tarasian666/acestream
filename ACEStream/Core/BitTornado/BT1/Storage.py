@@ -256,8 +256,14 @@ class Storage:
             f.flush()
             self.unlock_file(file, f)
             f.close()
-            self.tops[file] = getsize(file)
-            self.mtimes[file] = getmtime(file)
+            if os.path.isfile(file):
+                self.tops[file] = getsize(file)
+                self.mtimes[file] = getmtime(file)
+            else:
+                if DEBUG:
+                    log(self.log_prefix + '_close: missing file', file)
+                self.tops[file] = 0
+                self.mtimes[file] = 0
         else:
             if self.lock_while_reading:
                 self.unlock_file(file, f)
