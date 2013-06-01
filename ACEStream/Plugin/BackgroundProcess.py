@@ -64,7 +64,7 @@ CONTENT_ID_ENCRYPTED_FILE = 5
 MSG_DOWNLOAD_CANNOT_START = 1
 MSG_STARTED_ADS = 2
 MSG_STARTED_MAIN_CONTENT = 3
-GET = 1
+
 
 def get_default_api_version(apptype, exec_dir):
     if apptype == 'acestream':
@@ -185,7 +185,7 @@ class BackgroundApp(BaseApp):
             send_startup_event()
         if DEBUG_TIME:
             print >> sys.stderr, '>>>time:bg:init: startup event sent', time.clock()
-        self.ic_g = None
+
     def OnInit(self):
         try:
             BaseApp.OnInitBase(self)

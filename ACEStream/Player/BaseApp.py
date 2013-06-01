@@ -1629,10 +1629,10 @@ class BaseApp(InstanceConnectionHandler):
             if DEBUG:
                 log('baseapp::free_up_diskspace_by_downloads: known_files', known_files, 'filelist', filelist)
             for basename in filelist:
-	        try:
-		  basename = basename.decode('utf-8')
-		except:
-		  pass
+                try:
+                  basename = basename.decode('utf-8')
+                except:
+                  pass
                 if basename == '.lock':
                     continue
                 if infohash is not None and basename == binascii.hexlify(infohash):
