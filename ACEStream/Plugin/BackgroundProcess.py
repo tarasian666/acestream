@@ -64,6 +64,7 @@ CONTENT_ID_ENCRYPTED_FILE = 5
 MSG_DOWNLOAD_CANNOT_START = 1
 MSG_STARTED_ADS = 2
 MSG_STARTED_MAIN_CONTENT = 3
+GET = 1
 
 def get_default_api_version(apptype, exec_dir):
     if apptype == 'acestream':
@@ -150,7 +151,7 @@ class BackgroundApp(BaseApp):
         self.videoHTTPServer = VideoHTTPServer(self.httpport)
         if DEBUG_TIME:
             print >> sys.stderr, '>>>time:bg:init: VideoHTTPServer created', time.clock()
-        self.videoHTTPServer.register(self.videoservthread_error_callback, self.videoservthread_set_status_callback)
+        self.videoHTTPServer.register(self.videoservthread_error_callback, self.videoservthread_set_status_callback, self.videoservthread_load_torr)
         if DEBUG_TIME:
             print >> sys.stderr, '>>>time:bg:init: VideoHTTPServer registered', time.clock()
         BaseApp.__init__(self, wrapper, redirectstderrout, appname, appversion, params, installdir, i2i_port, session_port)
@@ -184,7 +185,7 @@ class BackgroundApp(BaseApp):
             send_startup_event()
         if DEBUG_TIME:
             print >> sys.stderr, '>>>time:bg:init: startup event sent', time.clock()
-
+        self.ic_g = None
     def OnInit(self):
         try:
             BaseApp.OnInitBase(self)
@@ -1764,7 +1765,58 @@ class BackgroundApp(BaseApp):
     def videoservthread_set_status_callback(self, status):
         videoserver_set_status_guicallback_lambda = lambda : self.videoserver_set_status_guicallback(status)
         self.run_delayed(videoserver_set_status_guicallback_lambda)
+ 
+       
+    def videoservthread_load_torr(self, t_type, t_str):
+        if DEBUG:
+	  log('bg::loading %s %s' % (t_type, t_str))
+        ic = BGInstanceConnection2(self, self.videoHTTPServer)
+        content_id = t_str
+        if t_type == 'TORRENT':
+           content_id_type = CONTENT_ID_TORRENT_URL
+        elif t_type == 'INFOHASH':
+           content_id_type = CONTENT_ID_INFOHASH
+        elif t_type == 'PID':
+             content_id_type = CONTENT_ID_PLAYER
+        elif t_type == 'RAW':
+                  content_id_type = CONTENT_ID_RAW
+        else:
+            log('bg::cmd: unknown type:', content_id_type)
+            raise ValueError('Unformatted LOAD command')
+        developer_id = 0
+        affiliate_id = 0
+        zone_id = 0
+        position = 0
+        quality_id = 0
+        fileindex = 0
+        extra_file_indexes = 0
+        try:
+           ret = self.load_torrent(ic, content_id_type, content_id, developer_id, affiliate_id, zone_id)
+           files = []
+           for x in ret['files']:
+               try:
+                   urlencoded_name = urllib.quote(x[0].encode('utf-8'))
+               except:
+                   print_exc()
+                   urlencoded_name = ''
+               index = x[1]
+               files.append([urlencoded_name, index])
+        except Exception as e:
+           log("bg: error ", e)
+    
+        player_data = self.get_torrent(content_id_type, content_id, quality_id)
+        if player_data is None:
+          raise ValueError, 'Cannot retrieve torrent'
+        if player_data.has_key('developer_id'):
+          developer_id = player_data['developer_id']
+        if player_data.has_key('affiliate_id'):
+          affiliate_id = player_data['affiliate_id']
+        if player_data.has_key('zone_id'):
+          zone_id = player_data['zone_id']
 
+        self.get_torrent_start_download(ic, player_data['tdef'], fileindex, extra_file_indexes, developer_id, affiliate_id, zone_id, position)
+
+    
     def videoserver_set_status_guicallback(self, status):
         pass
 
@@ -1923,7 +1975,6 @@ class BackgroundApp(BaseApp):
             log('bg: gui_webui_restart_all_downloads')
         for d2restart in ds2restart:
             self.gui_webui_restart_download(d2restart)
-
 
 class BGInstanceConnection(InstanceConnection):
 
@@ -2187,6 +2238,117 @@ class BGInstanceConnection(InstanceConnection):
             if shutdownplugin:
                 try:
                     self.write('SHUTDOWN\r\n')
+                    self.close()
+                except:
+                    log_exc()
+
+class BGInstanceConnection2:
+    def __init__(self, connhandler, videoHTTPServer):
+        self.bgapp = connhandler
+        self.videoHTTPServer = videoHTTPServer
+        self.urlpath = None
+        self.cstreaminfo = {}
+        self.shutteddown = False
+        self.supportedvodevents = [VODEVENT_START, VODEVENT_PAUSE, VODEVENT_RESUME]
+        self.ready = False
+        self.last_message_id = 0
+        self.last_message_text = ''
+        self.reported_events = {}
+        self.videoHTTPServer.url_is_set = 0
+        self.videoHTTPServer.ic = self
+
+
+    def set_streaminfo(self, streaminfo, count_read_bytes = False):
+        self.cstreaminfo.update(streaminfo)
+        stream = streaminfo['stream']
+        self.cstreaminfo['stream'] = ControlledStream(stream, count_read_bytes)
+
+    def start_playback(self, infohash, is_ad, is_interruptable_ad = False, position = 0, is_live = False, extension = None, click_url = None):
+        self.urlpath = URLPATH_CONTENT_PREFIX + '/' + infohash2urlpath(infohash) + '/' + str(random.random())
+        if extension is not None:
+            self.urlpath += '.' + extension
+        streaminfo = copy.copy(self.cstreaminfo)
+        self.videoHTTPServer.set_inputstream(streaminfo, self.urlpath)
+
+    def cleanup_playback(self):
+        if DEBUG:
+            log('bg::cleanup_playback')
+        if len(self.cstreaminfo) != 0:
+            if DEBUG2:
+                log('bg::cleanup_playback: close stream, cstreaminfo', self.cstreaminfo)
+            self.cstreaminfo['stream'].close()
+            try:
+                urlpath_copy = self.urlpath
+                http_del_inputstream_lambda = lambda : self.videoHTTPServer.del_inputstream(urlpath_copy)
+                if DEBUG2:
+                    log('bg::cleanup_playback: schedule input stream deletion: url', urlpath_copy)
+                self.bgapp.tqueue.add_task(http_del_inputstream_lambda)
+            except:
+                log_exc()
+
+    def pause(self):
+      return
+
+    def resume(self):
+      return
+
+    def info(self, message_text, message_id = 0, force = False):
+        if DEBUG2:
+            log('bg:ic:info: message_id', message_id, 'message_text', message_text)
+        if force or message_id != self.last_message_id or message_text != self.last_message_text:
+            self.last_message_id = message_id
+            self.last_message_text = message_text
+
+    def status(self, main_status, ad_status = None):
+        return
+
+    def error(self, errstr):
+        raise Exception, 'error() deprecated'
+
+    def auth(self, authlevel):
+      return
+
+
+    def hello(self):
+      return
+
+    def state(self, state):
+        if DEBUG:
+            log('STATE', state)
+
+    def event(self, name, params = {}):
+        if DEBUG_EVENTS:
+            log('ic:event: name', name, 'params', params)
+
+    def send_response(self, response, mark_as_retval = True):
+        if mark_as_retval:
+            response = '##' + response
+        if DEBUG:
+            log('BGInstanceConnection::send_response: ', response)
+
+    def send_load_response(self, request_id, response):
+        if DEBUG:
+            log('ic::send_load_response: request_id', request_id, 'response', response)
+
+    def searchurl(self, searchurl):
+        log('SENDING SEARCHURL 2 PLUGIN')
+
+    def close(self):
+        self = None
+        
+    def stop(self):
+      if DEBUG:
+	log("ic::got command stop")
+      self.bgapp.gui_connection_lost(self, switchp2ptarget=True)
+
+    def shutdown(self, shutdownplugin = True):
+        if DEBUG:
+            log('bg: Shutting down: shutdownplugin', shutdownplugin)
+        if not self.shutteddown:
+            self.shutteddown = True
+            self.cleanup_playback()
+            if shutdownplugin:
+                try:
                     self.close()
                 except:
                     log_exc()

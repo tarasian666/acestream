@@ -73,6 +73,7 @@ class Storage:
         total = 0L
         for i in xrange(len(files)):
             file, length = files[i]
+            file = file.encode('utf-8')
             if doneflag.isSet():
                 return
             self.disabled_ranges.append(None)
@@ -581,7 +582,7 @@ class Storage:
                     pfiles.extend([basename(file), getsize(file), getmtime(file)])
 
                 continue
-            file = self.files[i][0]
+            file = self.files[i][0].encode('utf-8')
             files.extend([i, getsize(file), getmtime(file)])
 
         return {'files': files,

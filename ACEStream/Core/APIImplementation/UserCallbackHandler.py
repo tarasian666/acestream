@@ -77,6 +77,7 @@ class UserCallbackHandler:
             self.sesslock.release()
 
     def sesscb_removestate(self, dltype, dlhash, contentdest, removecontent):
+        contentdest = contentdest.encode('utf-8')
         if DEBUG:
             print >> sys.stderr, 'Session: sesscb_removestate called', `dlhash`, `contentdest`, removecontent
         self.sesslock.acquire()
