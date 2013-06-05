@@ -192,14 +192,14 @@ class SimpleServer(BaseHTTPServer.BaseHTTPRequestHandler):
     def do_GET(self):
         global DEBUG
         try:
-	  if self.path.startswith('/LOAD'):
-	     content_id = self.path.split("=")[1]
-	     content_type = self.path.split("=")[0].split('/')[2]
-	     self.server.load_torr(content_type, content_id)
-	     t = 0
-	     while not self.server.url_is_set and t < 30:
-	       t+=1
-	       time.sleep(1)
+          if self.path.startswith('/LOAD'):
+             content_id = self.path.split("=")[1]
+             content_type = self.path.split("=")[0].split('/')[2]
+             self.server.load_torr(content_type, content_id)
+             t = 0
+             while not self.server.url_is_set and t < 30:
+               t+=1
+               time.sleep(1)
              if DEBUG:
                 log('videoserv: do_GET: Got request', self.path, self.headers.getheader('range'), currentThread().getName())
              nbytes2send = None
