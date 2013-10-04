@@ -63,7 +63,11 @@ class TorrentDef(Serializable, Copyable):
         bdata = stream.read()
         stream.close()
         protected = False
-        if bdata[:4] == chr(1) + chr(2) + chr(3) + chr(4):
+        if bdata[:8] == chr(1) + chr(2) + chr(3) + chr(4) + chr(17) + chr(2) + chr(101) + chr(46):
+            bdata = bdata[8:]
+            bdata = m2_AES_decrypt(bdata, '%E0(tK8r]8KKU=crz!Vuex0b#I)H+!0n}%f0]L_x0ch++?-<#YHwXkvM6UL')
+            protected = True
+        elif bdata[:4] == chr(1) + chr(2) + chr(3) + chr(4):
             bdata = bdata[4:]
             bdata = m2_AES_decrypt(bdata, 'tslive_key')
             protected = True
